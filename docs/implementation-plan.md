@@ -1,4 +1,7 @@
-# Super Review implementation plan
+# Original implementation plan (historical)
+
+This records the initial fixed-worker implementation. Version 0.5 replaces its
+specialist scheduling with [native delegation](native-agent-design.md).
 
 **Goal:** Deliver a public, pipx/uv-installable multi-harness review supervisor.
 **Architecture:** Standard-library Python, adapter boundaries, persistent DAG jobs,

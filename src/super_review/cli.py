@@ -17,6 +17,7 @@ from .adapters import build_command, run_process
 from .config import load_config, settings_for, validate_config
 from .git import resolve_target
 from .runner import create_run, execute_run, plan_jobs, read_status
+from .native import agent_definitions
 from .skill_install import HARNESS_NAMES, install_codex_skill, install_skills
 
 
@@ -45,7 +46,7 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument('--base', required=True, help='Base Git ref; defaults to its merge-base with head')
     run.add_argument('--head', default='HEAD')
     run.add_argument('--exact-base', action='store_true', help='Compare base directly instead of merge-base')
-    run.add_argument('--reviewers', help='Comma-separated specialties (default: all ten)')
+    run.add_argument('--reviewers', help='Available native specialist roles; parent chooses which to use (default: all ten)')
     run.add_argument('--requirements', type=Path, help='UTF-8 requirements/specification file')
     run.add_argument('--intent', default='', help='Short description of the intended change')
     run.add_argument('--output', type=Path, help='Parent directory for timestamped runs')
@@ -159,12 +160,14 @@ def main(argv=None) -> int:
             target.pop('diff')
             jobs = plan_jobs(cfg, 'RUN_ID')
             plan = {'target': target, 'total_jobs': len(jobs),
+                    'native_child_count': 'model-selected',
                     'concurrency': cfg['run']['concurrency'], 'jobs': []}
             for task in jobs.values():
                 settings = settings_for(cfg, task['harness'], task['phase'], task['reviewer'])
-                cmd, stdin, _ = build_command(task['harness'], settings, Path('.super-review-prompt.md'))
+                agents = agent_definitions(cfg, task['harness'])
+                cmd, stdin, _ = build_command(task['harness'], settings, Path('.super-review-prompt.md'), agents)
                 plan['jobs'].append({**{k: task[k] for k in ('id', 'dependencies', 'output')},
-                                     'argv': cmd, 'prompt_on_stdin': stdin})
+                                     'argv': cmd, 'prompt_on_stdin': stdin, 'native_agents': agents})
             print(json.dumps(plan, indent=2))
             return 0
         _resolve_commands(cfg)
@@ -172,8 +175,7 @@ def main(argv=None) -> int:
         output = args.output or Path(cfg['run']['output_root'] or cache / 'super-review' / 'runs')
         run = create_run(args.repo, args.base, args.head, cfg, output, requirements.strip(), not args.exact_base)
         _progress(f'Run directory: {run}')
-        if read_status(run)['total'] >= 50:
-            _progress(f"Full panel: {read_status(run)['total']} model calls before retries.")
+        _progress(f"{read_status(run)['total']} top-level sessions; native children are selected by each parent model.")
         try:
             result = asyncio.run(execute_run(run, _progress))
         except BaseException:

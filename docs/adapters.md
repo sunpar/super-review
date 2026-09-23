@@ -1,65 +1,27 @@
 # Harness adapter references
 
-The adapter interface is `invoke(harness, settings, prompt, cwd, log_dir, timeout,
-max_output_bytes) -> str`. A completed provider response becomes a Markdown body;
-the supervisor adds metadata and publishes it atomically.
+The adapter interface is `invoke(harness, settings, prompt, cwd, log_dir, timeout, max_output_bytes, agents=None, context="") -> str`. Production review jobs supply the native role catalog and shared child context. The supervisor adds report metadata and publishes completed responses atomically.
 
-Reviewed against primary CLI documentation on 2026-09-23:
+See [agent and skill design](agent-design.md) for native definition formats, selection policy and primary sources. Supported flags require recent harness versions. `doctor` checks executable/version availability, not authentication or delegation capabilities. Unsupported flags fail visibly; adapters do not retry with weaker permissions.
 
-- [Codex CLI reference](https://developers.openai.com/codex/cli/reference/)
-- [Codex non-interactive execution](https://developers.openai.com/codex/noninteractive/)
-- [Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference)
-- [Cursor parameters](https://cursor.com/docs/cli/reference/parameters)
-- [Cursor output formats](https://cursor.com/docs/cli/reference/output-format)
-- [OpenCode CLI](https://opencode.ai/docs/cli/)
-- [OpenCode permissions](https://opencode.ai/docs/permissions/)
+## Runtime inputs
 
-See [agent and skill design](agent-design.md) for native agent definitions, skill
-authoring locations, configuration boundaries and the reasoning behind the profiles.
-The profiles retain ordinary user/provider authentication; they require recent CLIs
-supporting the emitted flags. Unsupported flags fail visibly, and the supervisor
-does not retry using weaker permissions. `doctor` is a version/executable check,
-not a capability or authentication certification.
+Codex and Claude receive the parent prompt on stdin. Cursor and OpenCode receive a short instruction to read `.super-review-prompt.md`, keeping large diffs out of argv. All children receive the location of `.super-review-context.md`, containing pinned revisions, requirements, the full diff and allowed peer reports. Runtime files are collision-checked, verified unchanged and removed before checking for unauthorized source edits. Logs preserve copies and `native-agents.json`; Codex/Cursor native definition files are preserved too.
 
-Codex/Claude receive the complete prompt on stdin. Cursor/OpenCode receive a short
-instruction to read the local task prompt, keeping large diffs out of argv. The
-prompt file exists only inside the task's disposable working tree and is removed
-before checking for unauthorized edits.
+Codex registers external role TOMLs through configuration overrides and enables native agents. Its parent sandbox is read-only. Claude uses session-local parent and child agent definitions with a named Agent allowlist. Cursor uses Agent mode plus temporary read-only project permissions and child Markdown definitions; an existing `.cursor/cli.json` is a reserved-path conflict. OpenCode uses inline primary/subagent definitions and explicit task permissions. Global authentication/provider settings remain available. Children cannot launch another CLI swarm through the wrapper: workers carry `SUPER_REVIEW_WORKER=1`.
 
-Codex JSONL requires completion of the latest turn after its assistant message;
-an earlier completed turn cannot validate a later interrupted turn. Claude requires
-a successful JSON result envelope. Cursor requires a successful terminal result
-with nonempty `result` text, as specified by its protocol. That field aggregates
-assistant text and may contain progress; selecting only the last assistant segment
-can silently discard report content. OpenCode JSONL uses only text from the last
-step and requires a final stop reason. Tool logs are never used as report bodies.
-Any explicit error, nonzero exit, malformed/incomplete
-envelope or empty response fails the task. Raw stdout/stderr remain in attempt logs.
+OpenCode specialist effort requires an explicit specialist model because its agent variant applies only with an agent model. Cursor specialist effort resolves through configured model mappings. Child settings otherwise inherit from the native parent. `run.concurrency`, timeout and output limits apply to top-level sessions, including their native child work; native concurrency is controlled by the harness.
 
-Claude gets an explicit session-local native agent and the same common contract
-as the other harnesses. Only Read/Grep/Glob are available; project/local settings,
-slash commands, hooks and MCP servers are excluded. CLAUDE.md and memory can still
-load. OpenCode's inline primary agent sets its system prompt, tool permissions and
-`disable: false`; project-configuration exclusion is requested and automatic sharing is
-explicitly disabled in configuration and environment. Global authentication/plugins
-remain trusted. Snapshots and automatic updates are disabled for these read-only
-jobs. Codex sessions are ephemeral, with web search, hooks and nested agents disabled;
-its normal model/provider configuration remains available.
+## Output handling
 
-OpenCode's legacy config loader honors `OPENCODE_DISABLE_PROJECT_CONFIG`, but
-[issue #49836](https://github.com/anomalyco/opencode/issues/49836) reproduces a newer
-loader importing repository plugins despite that flag on 1.18.31. This issue was
-open on 2026-09-23. Do not treat the flag as verified isolation from project startup
-code; use trusted repositories and verify the upstream fix against your installation.
-The environment override regression test checks what this adapter sends, not whether
-an unspecified OpenCode release correctly enforces it.
+Codex JSONL requires completion of the latest turn after its assistant message. Claude requires a successful JSON result envelope. Cursor requires a successful terminal result with nonempty `result`; this field aggregates assistant text and may include progress. OpenCode uses text from the final step and requires a final stop reason. Tool logs are never report bodies. Explicit errors, nonzero exits, malformed/incomplete envelopes and empty responses fail the task. Raw stdout/stderr remain in attempt logs.
 
-Protocol 2 separates these profiles and prompts from version 0.1 runs. Resume old
-runs with the original package version, or start a new run with 0.2. Authentication,
-installed harness versions and model defaults are not frozen by the
-manifest; use explicit model choices and keep harness installations stable during
-a run if reproducibility matters.
+Provider references: [Codex CLI](https://learn.chatgpt.com/docs/developer-commands?surface=cli), [Claude CLI](https://code.claude.com/docs/en/cli-reference), [Cursor parameters](https://cursor.com/docs/cli/reference/parameters), [Cursor output](https://cursor.com/docs/cli/reference/output-format), [OpenCode CLI](https://opencode.ai/docs/cli/).
 
-No real model calls were used to develop the initial automated test suite. Account
-authentication, permission policies and provider-specific model/effort combinations
-are installation-specific. Verify a small review before running a full panel.
+## Compatibility and limits
+
+Protocol 3 prevents older fixed-specialist runs from resuming under the native-child architecture. Finish old runs with their original package version, or start a new run with 0.5. Authentication, installed CLI versions and model defaults are not frozen in the manifest.
+
+The OpenCode adapter requests project-configuration exclusion. [Issue #49836](https://github.com/anomalyco/opencode/issues/49836) reports a loader importing repository plugins despite that flag on 1.18.31. Treat host/provider configuration and executable plugins as trusted; adapter tests establish emitted configuration, not enforcement by an unspecified vendor release.
+
+No vendor CLI is installed in the build environment. Tests and prompt trials cannot establish live provider authentication, native role discovery or permission enforcement. Validate a small review on each installed harness before relying on its coverage.

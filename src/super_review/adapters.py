@@ -9,9 +9,13 @@ from pathlib import Path
 import signal
 
 from .prompts import COMMON
+from .native import native_workspace
 
 
-def build_command(harness: str, settings: dict, prompt_path: Path) -> tuple[list[str], bool, dict]:
+def build_command(harness: str, settings: dict, prompt_path: Path,
+                  agents: dict | None = None,
+                  native_dir: Path | None = None) -> tuple[list[str], bool, dict]:
+    agents = agents or {}
     command = settings['command'].copy()
     model, effort = settings.get('model', ''), settings.get('effort', '')
     env: dict[str, str] = {}
@@ -19,21 +23,34 @@ def build_command(harness: str, settings: dict, prompt_path: Path) -> tuple[list
     if harness == 'codex':
         command += ['-a', 'never', 'exec', '--sandbox', 'read-only', '--json', '--ephemeral',
                     '-c', 'web_search="disabled"', '-c', 'features.hooks=false',
-                    '-c', 'features.multi_agent=false']
+                    '-c', 'agents.enabled=' + ('true' if agents else 'false')]
+        for name, definition in agents.items():
+            role_path = (native_dir or Path('NATIVE_AGENT_DIR')) / f'{name}.toml'
+            command += ['-c', f'agents.{name}.config_file={json.dumps(str(role_path), ensure_ascii=False)}',
+                        '-c', f'agents.{name}.description={json.dumps(definition["description"], ensure_ascii=False)}']
         if model:
             command += ['--model', model]
         if effort:
-            command += ['-c', f'model_reasoning_effort={json.dumps(effort)}']
+            command += ['-c', f'model_reasoning_effort={json.dumps(effort, ensure_ascii=False)}']
         command += ['-']
         return command, True, env
     if harness == 'claude_code':
-        agents = {'super-review': {'description': 'Independent read-only code reviewer',
-                                   'prompt': COMMON, 'tools': ['Read', 'Grep', 'Glob']}}
+        tools = ['Read', 'Grep', 'Glob']
+        parent_tools = tools + ([f'Agent({", ".join(agents)})'] if agents else [])
+        definitions = {'super-review': {'description': 'Parent code reviewer',
+                                        'prompt': COMMON, 'tools': parent_tools}}
+        for name, definition in agents.items():
+            child = {'description': definition['description'], 'prompt': definition['prompt'],
+                     'tools': tools, 'permissionMode': 'plan'}
+            for key in ('model', 'effort'):
+                if definition[key]:
+                    child[key] = definition[key]
+            definitions[name] = child
         command += ['-p', '--output-format', 'json', '--permission-mode', 'plan',
-                    '--tools', 'Read,Grep,Glob', '--strict-mcp-config',
+                    '--tools', ','.join(tools + (['Agent'] if agents else [])), '--strict-mcp-config',
                     '--mcp-config', '{"mcpServers":{}}', '--no-session-persistence',
                     '--settings', '{"disableAllHooks":true}', '--setting-sources', 'user',
-                    '--disable-slash-commands', '--agents', json.dumps(agents),
+                    '--disable-slash-commands', '--agents', json.dumps(definitions),
                     '--agent', 'super-review']
         if model:
             command += ['--model', model]
@@ -46,7 +63,11 @@ def build_command(harness: str, settings: dict, prompt_path: Path) -> tuple[list
                 model = settings['effort_models'][effort]
             except KeyError as exc:
                 raise ValueError('Cursor effort requires effort_models') from exc
-        command += ['--print', '--mode', 'ask', '--output-format', 'stream-json']
+        command += ['--print', '--output-format', 'stream-json']
+        if agents:
+            command += ['--workspace', str(prompt_path.parent)]
+        else:
+            command += ['--mode', 'ask']
         if model:
             command += ['--model', model]
         command += [pointer]
@@ -55,15 +76,27 @@ def build_command(harness: str, settings: dict, prompt_path: Path) -> tuple[list
         permissions = {'*': 'deny', 'read': 'allow', 'glob': 'allow', 'grep': 'allow',
                        'list': 'allow', 'edit': 'deny', 'bash': 'deny', 'task': 'deny',
                        'external_directory': 'deny'}
+        parent_permissions = {**permissions, 'task': {'*': 'deny', **{name: 'allow' for name in agents}}} if agents else permissions
+        definitions = {'super-review': {'description': 'Parent code reviewer',
+                                       'mode': 'primary', 'disable': False, 'prompt': COMMON,
+                                       'permission': parent_permissions}}
+        for name, definition in agents.items():
+            child = {'description': definition['description'], 'prompt': definition['prompt'],
+                     'mode': 'subagent', 'permission': permissions}
+            if definition['model']:
+                child['model'] = definition['model']
+            if definition['effort']:
+                child['variant'] = definition['effort']
+            definitions[name] = child
         env['OPENCODE_CONFIG_CONTENT'] = json.dumps({
-            'permission': permissions, 'share': 'disabled',
+            'permission': parent_permissions, 'share': 'disabled',
             'autoupdate': False, 'snapshot': False,
-            'agent': {'super-review': {'description': 'Read-only code reviewer',
-                                      'mode': 'primary', 'disable': False, 'prompt': COMMON,
-                                      'permission': permissions}}})
+            'agent': definitions})
         env['OPENCODE_AUTO_SHARE'] = 'false'
         env['OPENCODE_DISABLE_PROJECT_CONFIG'] = 'true'
-        env['OPENCODE_PERMISSION'] = json.dumps(permissions)
+        # Global configuration task allowlist limits the parent; children also carry an
+        # explicit deny in their native definition so they cannot delegate further.
+        env['OPENCODE_PERMISSION'] = json.dumps(parent_permissions)
         command += ['run', '--format', 'json', '--agent', 'super-review']
         if model:
             command += ['--model', model]
@@ -212,18 +245,13 @@ async def run_process(argv: list[str], stdin: str, cwd: Path, env: dict,
 
 
 async def invoke(harness: str, settings: dict, prompt: str, cwd: Path,
-                 log_dir: Path, timeout: float, max_output_bytes: int) -> str:
+                 log_dir: Path, timeout: float, max_output_bytes: int,
+                 agents: dict | None = None, context: str = '') -> str:
     prompt_path = cwd / '.super-review-prompt.md'
-    if prompt_path.exists():
-        raise ValueError('Reviewed repository contains reserved .super-review-prompt.md')
-    prompt_path.write_text(prompt, encoding='utf-8')
-    argv, use_stdin, env = build_command(harness, settings, prompt_path)
-    env['SUPER_REVIEW_WORKER'] = '1'
-    log_dir.mkdir(parents=True, exist_ok=True)
-    (log_dir / 'command.json').write_text(json.dumps(argv, indent=2), encoding='utf-8')
-    try:
+    with native_workspace(harness, agents or {}, cwd, log_dir, prompt, context) as native_dir:
+        argv, use_stdin, env = build_command(harness, settings, prompt_path, agents, native_dir)
+        env['SUPER_REVIEW_WORKER'] = '1'
+        (log_dir / 'command.json').write_text(json.dumps(argv, indent=2), encoding='utf-8')
         stdout, _ = await run_process(argv, prompt if use_stdin else '', cwd, env,
                                       timeout, max_output_bytes, log_dir)
         return parse_output(harness, stdout)
-    finally:
-        prompt_path.unlink(missing_ok=True)

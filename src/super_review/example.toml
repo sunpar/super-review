@@ -1,5 +1,6 @@
 # Copy with: super-review init
-# Native review agents are generated per job; no separate skill installation needed.
+# Native child-agent definitions are generated per parent session.
+# Parent models choose applicable roles and may skip the rest.
 # Use recent CLIs. Provider settings should live in user/global configuration:
 # Claude project settings are excluded; OpenCode project exclusion is requested.
 # OpenCode 1.18.31 has a known plugin-loading exception: see README compatibility.
@@ -9,7 +10,9 @@ version = 1
 # Enable any subset. Codex is always used for final synthesis.
 harnesses = ["codex"]
 # harnesses = ["codex", "claude_code", "cursor", "opencode"]
+# Available native roles, not a mandatory execution list.
 reviewers = ["correctness", "edge_cases", "security", "concurrency", "performance", "api_contracts", "data_integrity", "testing", "architecture", "operations"]
+# Bounds top-level sessions, not the native children within them.
 concurrency = 4
 timeout_seconds = 900
 total_timeout_seconds = 7200
@@ -20,7 +23,7 @@ output_root = ""
 # Executable paths are resolved at launch. Use absolute paths for wrapper arguments.
 command = ["codex"]
 [harnesses.codex.defaults]
-# An empty model/effort inherits the installed CLI's configured choice.
+# Empty parent model/effort uses CLI defaults; empty child fields inherit the parent.
 model = ""
 effort = ""
 [harnesses.codex.reviewers.security]
@@ -55,7 +58,8 @@ command = ["opencode"]
 [harnesses.opencode.defaults]
 # model = "provider/model-id-from-opencode-models"
 model = ""
-# Maps to --variant; supported variants depend on the model/provider.
+# Parent --variant / child variant; variants depend on model/provider.
+# Native children with nonempty effort require an explicit model above or per role.
 effort = ""
 
 [synthesis]

@@ -3,9 +3,11 @@
 Independent specialist code reviews across **Codex, Claude Code, Cursor CLI, and
 OpenCode**, followed by peer critiques, self-revision, and one combined Codex review.
 
-Every specialist and phase gets a fresh CLI process and independently configurable
-model/effort. Python schedules jobs and waits for files; models never spend tokens
-polling directories. The supervisor stores review reports locally.
+Each harness runs a parent reviewer that chooses relevant specialists and spawns
+them as **native child agents**. Parents can skip irrelevant roles, split large
+scopes across children, and request follow-ups. Model/effort settings remain
+configurable per role. Python handles only top-level harness sessions, cross-harness
+report handoffs, persistence and resume; it never schedules specialist processes.
 
 ## Install
 
@@ -33,9 +35,11 @@ harness's existing configuration. This package does not install harnesses or man
 provider credentials.
 
 Upgrade an existing installation with `pipx upgrade super-review-swarm` (or
-`uv tool upgrade super-review-swarm`). Versions 0.2–0.4 use review protocol 2: finish
-0.1 runs with 0.1, or start a new run after upgrading. Old reports remain readable,
-but mixing earlier prompts and adapter policies with new jobs is rejected.
+`uv tool upgrade super-review-swarm`). Version 0.5 uses **review protocol 3** for
+native delegation. Finish earlier runs with their original package version, or
+start a new run after upgrading. Old reports remain readable; mixing fixed-worker
+reviews with native-agent jobs is rejected. Reinstall the launcher skills after
+upgrading: `super-review install-skills --force` (previous copies are backed up).
 
 ## First review
 
@@ -53,7 +57,8 @@ super-review run --base origin/main --head HEAD \
   --intent 'Explain the intended behavior of this change'
 ```
 
-The generated configuration initially enables **Codex only** and all ten specialists.
+The generated configuration initially enables **Codex only** and makes all ten
+specialist roles available. The parent decides which roles actually run.
 Enable every peer with:
 
 ```bash
@@ -63,9 +68,11 @@ super-review run --base origin/main --head HEAD \
   --output .reviews
 ```
 
-Four peers and ten specialties produce **61 model calls** before retries: 40
-specialists, 4 initial reviews, 12 directed critiques, 4 revisions, and 1 synthesis.
-Concurrency defaults to 4. For a smaller first run:
+Four peers produce **21 top-level sessions** before retries: 4 parent reviews,
+12 directed critiques, 4 revisions, and 1 synthesis. Native children and total model
+calls are selected dynamically. Concurrency defaults
+to 4 top-level sessions; it does not cap children across harnesses. `--reviewers`
+limits the available role catalog rather than forcing those roles to run:
 
 ```bash
 super-review run --base HEAD~1 --reviewers correctness,security,testing --concurrency 2
@@ -112,7 +119,7 @@ user request before executing the swarm.
 
 The optional message goes to every review phase as guidance. The skill uses your
 repository's `super-review.toml`, including its enabled harnesses and model settings;
-without a config it uses Codex and all ten specialists. The harness launching the
+without a config it uses Codex with all ten specialist roles available. The harness launching the
 skill does **not** change the review peers; Codex is still required for synthesis.
 It selects and announces a committed comparison against the local default branch,
 falling back to the last commit when there are no branch changes. You can explicitly
@@ -157,8 +164,10 @@ See the [official discovery and invocation references](docs/agent-design.md#shar
 ## Workflow
 
 1. Pin the base/head commits and save the full diff and configuration.
-2. Run the same specialist suite independently through every enabled harness.
-3. Each harness assembles its specialists into one initial Markdown review.
+2. Each harness parent independently inspects the change and selects useful native
+   specialist children from the configured catalog.
+3. The parent waits for its children, validates their findings, and writes one
+   initial Markdown review with a delegation summary and reasons for skipped roles.
 4. As peer reviews become available, harnesses critique one another. A harness
    starts critiques only after finishing its own independent review.
 5. After **all directed critiques** complete, each harness revises its own review
@@ -168,14 +177,23 @@ See the [official discovery and invocation references](docs/agent-design.md#shar
 
 The ten specialties are correctness, edge cases, security, concurrency, performance,
 API contracts, data integrity/SQL/numerics, testing, architecture, and operations.
-The package launches specialist agents as separate CLI sessions; it does not ask
-a parent model to decide whether to create native subagents.
+Each role has a native agent definition generated with its configured model/effort
+and review instructions. The parent may instantiate a role multiple times for
+different scopes or skip all children for a trivial change with an explanation.
+Critique, revision and synthesis parents can also delegate targeted checks. Children
+return results through native tools, not separate Python-owned specialist files.
+
+Definitions and shared child context are retained under `logs/<job>/<attempt>/`.
+Parent reports distinguish completed children, irrelevant roles, and failed or
+unavailable delegation. These are model-reported decisions, not independently
+verified child counts. If needed native tools are unavailable, the parent must
+report INCOMPLETE; there is no fallback to Python specialist workers.
 
 ## Model and effort configuration
 
 Settings inherit from `harnesses.<name>.defaults`. A reviewer override applies to
-that specialist; `coordinator`, `critique`, and `revision` independently override
-their phases. `[synthesis]` overrides Codex defaults for the final report.
+that native specialist definition; `coordinator`, `critique`, and `revision`
+independently override their parent sessions. `[synthesis]` overrides Codex defaults for the final report.
 
 ```toml
 [harnesses.codex.defaults]
@@ -201,16 +219,16 @@ effort = "high"
 ```
 
 These are configuration examples; choose identifiers and effort levels supported
-by your account. Empty strings explicitly inherit the CLI's own defaults. Omit a
-phase key to inherit the harness defaults. No effort value is silently translated
+by your account. Empty parent fields use CLI defaults; empty child fields use
+native parent inheritance. Omit a phase or reviewer key to inherit harness defaults. No effort value is silently translated
 to a supposedly equivalent level on another provider.
 
 | Harness | Model | Effort | Review restriction |
 |---|---|---|---|
-| Codex | `--model` | `model_reasoning_effort` | read-only sandbox, approvals never; ephemeral session, web search/hooks/nested agents disabled |
-| Claude Code | `--model` | `--effort` | explicit native reviewer; Read/Grep/Glob only, plan mode, hooks/skills disabled, empty MCP config, user settings only |
-| Cursor | `--model` | Explicit model-ID mapping | Ask mode |
-| OpenCode | `--model provider/model` | `--variant` | explicit primary reviewer; read/glob/grep/list allowed, automatic sharing disabled, project-config exclusion requested |
+| Codex | Parent flag / child TOML | `model_reasoning_effort` | read-only parent sandbox; native agents enabled, web search/hooks disabled |
+| Claude Code | Parent flag / child JSON | Parent flag / child `effort` | parent Read/Grep/Glob + named Agent calls; children Read/Grep/Glob only |
+| Cursor | Parent flag / child Markdown | Explicit model-ID mapping | Agent mode with generated write/shell/MCP/web-fetch denies; children `readonly: true` |
+| OpenCode | Parent flag / child JSON | Parent flag / child `variant` | primary parent can task named subagents; children read/glob/grep/list only |
 
 These profiles use current documented CLI capabilities. Use recent harness
 releases; unsupported flags fail the task rather than silently weakening it.
@@ -240,7 +258,12 @@ high = "exact-model-id-from-agent-models"
 
 If your Cursor executable is `cursor-agent`, set
 `[harnesses.cursor] command = ["cursor-agent"]` using normal TOML table syntax.
-OpenCode users can inspect their available models with `opencode models`.
+OpenCode users can inspect their available models with `opencode models`. A native
+OpenCode child with a nonempty effort must also have an explicit model (either in
+harness defaults or its reviewer override), because agent variants apply to the
+configured model. Unsupported combinations are rejected before a review starts.
+Native model selection can still be restricted or substituted by the installed
+harness/account; configured choices are requests, not verified resolved models.
 
 ## Output and resume
 
@@ -252,12 +275,15 @@ file. Each run uses one shared UTC timestamp and random suffix.
 <run-id>/
   manifest.json
   diff.patch
-  specialists/<harness>_<specialty>_<run-id>.md
   reviews/<harness>_<run-id>.md
   critiques/<author>_critique_<target>_<run-id>.md
   final/<harness>_final_<run-id>.md
   combined_review_<run-id>.md
   logs/<job-id>/<attempt>/
+    native-agents.json
+    native/
+    context.md
+    prompt.md
   repository.git/
 ```
 
@@ -272,13 +298,15 @@ super-review resume /path/to/run-id
 ```
 
 Completed reports are verified and reused. Failed/interrupted jobs run again in
-fresh contexts; they do not resume a provider's previous conversation. Altered
+fresh parent contexts, including any children the new parent chooses. Individual
+native children are not independently resumed; they do not resume a provider's
+previous conversation. Altered
 reports or inputs stop resume instead of silently mixing results. Start a new run
 to change models, requirements or the Git target. An exclusive OS lock prevents
 two supervisors from advancing the same run. If the host dies after publication
 but before the manifest update, that job may be repeated.
 
-Individual tasks default to 15 minutes; each invocation of run/resume has a
+Each top-level session, including its native children, defaults to 15 minutes; each invocation of run/resume has a
 two-hour limit. Configure both in TOML. Output capture is bounded; failures retain
 logs. Timeouts and Ctrl-C terminate the harness process group. `SIGKILL`/host crashes
 can leave a disposable worktree behind; remove the entire run directory when you
@@ -290,6 +318,14 @@ The source checkout is never a harness working directory. A private local Git
 copy has no remotes, and each task gets its own detached worktree. Reports are
 published only after checking that the task did not change its working tree.
 Supervisor Git commands disable hooks and never initialize submodules or fetch.
+Generated context/prompt files and Cursor runtime definitions are checked for
+modification and removed before workspace verification. Existing files at reserved
+runtime paths are never overwritten: `.super-review-prompt.md`,
+`.super-review-context.md`, and, for Cursor, `.cursor/cli.json` and the generated
+`.cursor/agents/super-review-*.md` paths. A collision fails before that parent starts.
+Codex role TOMLs live outside the worktree and are registered with CLI overrides,
+avoiding dependence on project-config trust. Cursor may require workspace trust;
+the adapter does not grant it automatically.
 
 Read-only harness controls are **not an operating-system security boundary**.
 Run against trusted repositories and trusted harness configuration. Harnesses run
@@ -312,7 +348,7 @@ trust or bypass its permission policy.
 
 Reviewers are asked to report `Review status: COMPLETE` or `INCOMPLETE`, their
 inspected scope, and unread or truncated evidence. These are model claims, not
-supervisor-verified coverage. In particular, Claude/OpenCode have no shell tool:
+supervisor-verified coverage. In particular, Claude/OpenCode and native Cursor reviewers have no shell tool:
 they see HEAD and the full diff, but cannot use Git to recover complete historical
 files. They must disclose missing base context when it matters. Cursor's canonical
 terminal result includes all assistant text, so progress prose can appear in a

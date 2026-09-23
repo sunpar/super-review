@@ -37,9 +37,11 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.is_file())
             state = read_status(run)
             self.assertEqual(state['state'], 'complete')
-            self.assertEqual(state['expected'], {'specialists': 8, 'reviews': 4, 'critiques': 12,
+            self.assertEqual(state['expected'], {'specialists': 'model-selected', 'reviews': 4, 'critiques': 12,
                                                'final_reviews': 4, 'combined_reviews': 1})
+            self.assertEqual(state['total'], 21)
             records = [json.loads(x) for x in events.read_text().splitlines()]
+            self.assertFalse(any(r['phase'] == 'specialist' for r in records))
             starts = {r['job']: r['time'] for r in records if r['event'] == 'start'}
             ends = {r['job']: r['time'] for r in records if r['event'] == 'end'}
             critique_ends = [r['time'] for r in records if r['event'] == 'end' and r['phase'] == 'critique']
@@ -88,7 +90,7 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
             repo, run, events = self.setup_run(Path(tmp), ['codex'])
             manifest_path = run / 'manifest.json'
             manifest = json.loads(manifest_path.read_text())
-            manifest['protocol_version'] = 1
+            manifest['protocol_version'] = 2
             manifest['contract_sha256'] = digest_json({key: manifest[key] for key in (
                 'protocol_version', 'run_id', 'target', 'config', 'requirements', 'diff_sha256')})
             manifest_path.write_text(json.dumps(manifest))

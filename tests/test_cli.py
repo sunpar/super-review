@@ -34,7 +34,9 @@ class CliTests(unittest.TestCase):
                               'codex,claude_code,cursor,opencode', '--output', str(root / 'runs'))
             self.assertEqual(result.returncode, 0, result.stderr)
             plan = json.loads(result.stdout)
-            self.assertEqual(plan['total_jobs'], 61)
+            self.assertEqual(plan['total_jobs'], 21)
+            self.assertEqual(plan['native_child_count'], 'model-selected')
+            self.assertEqual(len(plan['jobs'][0]['native_agents']), 10)
             self.assertEqual(plan['target']['head_sha'], head)
             self.assertFalse((root / 'runs').exists())
 
@@ -195,6 +197,6 @@ class CliTests(unittest.TestCase):
             self.assertEqual(manifest['requirements'], message)
             records = [json.loads(line) for line in events.read_text().splitlines()]
             self.assertEqual({r['phase'] for r in records},
-                             {'specialist', 'coordinator', 'critique', 'revision', 'synthesis'})
+                             {'coordinator', 'critique', 'revision', 'synthesis'})
             self.assertTrue(all(r['worker'] == '1' for r in records))
             self.assertFalse((repo / 'NEVER').exists())

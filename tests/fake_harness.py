@@ -27,7 +27,7 @@ if failure == task['id'] and not Path(events_file + '.failed').exists():
     record('fail')
     print('fake API failure', file=sys.stderr)
     sys.exit(7)
-if failure == 'slow-opencode' and harness == 'opencode' and task['phase'] == 'specialist':
+if failure == 'slow-opencode' and harness == 'opencode' and task['phase'] == 'coordinator':
     time.sleep(.6)
 else:
     time.sleep(.01)

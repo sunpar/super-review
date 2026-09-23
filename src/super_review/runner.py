@@ -1,4 +1,4 @@
-"""Persistent dependency graph: specialist reviews -> critiques -> finals -> synthesis."""
+"""Cross-harness handoffs; each parent model owns native specialist delegation."""
 
 from __future__ import annotations
 
@@ -13,13 +13,14 @@ import uuid
 from .adapters import invoke
 from .config import settings_for, validate_config
 from .git import resolve_target, create_snapshot, async_workspace, async_assert_clean
-from .prompts import render_prompt
+from .prompts import render_context, render_prompt
+from .native import agent_definitions
 from .protocol import (RunLock, atomic_write, digest_bytes, digest_json, publish,
                        utc_now, verify_artifact)
 
 # Bump when prompt or adapter behavior changes incompatibly: a resumed run must
 # not combine completed reviews with jobs using a different execution recipe.
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 TASK_FIELDS = ('id', 'phase', 'harness', 'reviewer', 'target_harness', 'dependencies', 'output')
 
 
@@ -33,14 +34,8 @@ def plan_jobs(config: dict, run_id: str) -> dict:
                           'dependencies': list(deps), 'output': output,
                           'state': 'pending', 'attempts': 0}
 
-    # Round-robin between peers gives each a chance to finish and start critiques.
-    for reviewer in config['run']['reviewers']:
-        for h in peers:
-            add(f'{h}.specialist.{reviewer}', 'specialist', h,
-                f'specialists/{h}_{reviewer}_{run_id}.md', reviewer=reviewer)
     for h in peers:
-        add(f'{h}.coordinator', 'coordinator', h, f'reviews/{h}_{run_id}.md',
-            [f'{h}.specialist.{r}' for r in config['run']['reviewers']])
+        add(f'{h}.coordinator', 'coordinator', h, f'reviews/{h}_{run_id}.md')
     critiques = []
     for h in peers:
         for other in peers:
@@ -73,12 +68,12 @@ def create_run(repo: Path, base: str, head: str, config: dict, output_root: Path
     root.mkdir(parents=True, mode=0o700)
     atomic_write(root / 'diff.patch', patch)
     create_snapshot(Path(target['repository']), root / 'repository.git', target)
-    n, r = len(config['run']['harnesses']), len(config['run']['reviewers'])
+    n = len(config['run']['harnesses'])
     manifest = {'protocol_version': PROTOCOL_VERSION, 'run_id': run_id,
                 'created_at': utc_now(), 'state': 'pending', 'target': target,
                 'config': config, 'requirements': requirements,
                 'diff_sha256': digest_bytes(patch.encode('utf-8')),
-                'expected': {'specialists': n*r, 'reviews': n, 'critiques': n*(n-1),
+                'expected': {'specialists': 'model-selected', 'reviews': n, 'critiques': n*(n-1),
                              'final_reviews': n, 'combined_reviews': 1},
                 'jobs': plan_jobs(config, run_id)}
     manifest['contract_sha256'] = digest_json(_contract(manifest))
@@ -152,14 +147,18 @@ def _reports(root, manifest, task):
 async def _job(root, manifest, task, patch):
     config = manifest['config']
     settings = settings_for(config, task['harness'], task['phase'], task['reviewer'])
-    prompt = render_prompt(manifest, task, patch, _reports(root, manifest, task))
+    reports = _reports(root, manifest, task)
+    prompt = render_prompt(manifest, task, patch, reports)
+    context = render_context(manifest, patch, reports)
+    agents = agent_definitions(config, task['harness'])
     # Per-attempt random directories avoid reusing a worktree left by SIGKILL.
     workdir = root / 'workspaces' / f"{task['id']}-{uuid.uuid4().hex[:8]}"
     logs = root / 'logs' / task['id'] / str(task['attempts'])
     async with async_workspace(root / 'repository.git', workdir,
                                manifest['target']['head_sha'], logs / 'git') as cwd:
         body = await invoke(task['harness'], settings, prompt, cwd, logs,
-                            config['run']['timeout_seconds'], config['run']['max_output_bytes'])
+                            config['run']['timeout_seconds'], config['run']['max_output_bytes'],
+                            agents, context)
         await async_assert_clean(cwd, manifest['target']['head_sha'], logs / 'git')
     metadata = {**_metadata(manifest, task), 'generated_at': utc_now()}
     return publish(root / task['output'], metadata, body)
@@ -188,7 +187,7 @@ async def execute_run(root: Path, progress=None) -> Path:
         _save(root, manifest)
         active = {}
         limit = manifest['config']['run']['concurrency']
-        priority = {'critique': 0, 'coordinator': 1, 'revision': 2, 'synthesis': 3, 'specialist': 4}
+        priority = {'critique': 0, 'coordinator': 1, 'revision': 2, 'synthesis': 3}
         try:
             async with asyncio.timeout(manifest['config']['run']['total_timeout_seconds']):
                 while any(t['state'] != 'completed' for t in jobs.values()):

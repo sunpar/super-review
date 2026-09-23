@@ -102,6 +102,12 @@ def validate_config(config: dict) -> dict:
         effort = settings.get('effort')
         if effort and effort not in settings.get('effort_models', {}):
             raise ValueError('Cursor effort requires an explicit effort_models mapping to CLI model IDs')
+    if 'opencode' in run['harnesses']:
+        for reviewer in run['reviewers']:
+            settings = settings_for(config, 'opencode', 'specialist', reviewer)
+            if settings.get('effort') and not settings.get('model'):
+                raise ValueError('OpenCode native specialist effort requires an explicit model '
+                                 f'for {reviewer} (agent variant applies to a configured model)')
     return config
 
 

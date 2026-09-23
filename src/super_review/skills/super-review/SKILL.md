@@ -7,7 +7,8 @@ disable-model-invocation: true
 # Super Review
 
 Launch the installed `super-review` CLI from the user's controlling harness session.
-Python manages the reviewers, critiques, revision barrier, and final synthesis.
+Each harness parent selects and spawns native specialist children as needed.
+Python handles cross-harness reports, critique barriers, persistence and resume.
 The launching harness does not select review peers; Codex still performs synthesis.
 
 ## Invocation
@@ -31,8 +32,8 @@ requested this swarm. Loading a skill alone is not authorization to run it.
    on PATH. If missing, explain the installation requirement instead of simulating
    a swarm: `pipx install git+https://github.com/sunpar/super-review.git`.
 2. Work from the target Git repository root. Read its `super-review.toml` if present;
-   preserve its harness/model settings. Without one, the CLI uses Codex and all ten
-   specialists. Honor an explicitly supplied config or harness selection.
+   preserve its harness/model settings. Without one, the CLI uses Codex with ten
+   available specialist roles; the parent selects which children to spawn. Honor an explicitly supplied config or harness selection.
 3. Establish the committed range. Use the user's explicit base/head or a base
    already established in the conversation. Otherwise inspect the local default
    branch (`origin/HEAD`, then available `origin/main`, `origin/master`, `main`,
@@ -51,7 +52,7 @@ requested this swarm. Loading a skill alone is not authorization to run it.
    and pass `--requirements` instead. Remove only that temporary file afterward.
 5. Run `super-review run --base <base> --head <head>` with the selected arguments.
    Use `--exact-base` for an explicitly requested two-commit comparison. A
-   `--dry-run` can preview the target and job count without model calls; it does not
+   `--dry-run` can preview the target and top-level job count (native child count is model-selected) without model calls; it does not
    execute the review. Respect the host's execution/network/approval requirements;
    do not bypass them. This launches provider calls using installed harness logins.
 6. Keep the process alive and monitor it using the host's process/session tools.

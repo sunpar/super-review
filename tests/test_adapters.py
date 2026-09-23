@@ -19,7 +19,7 @@ class AdapterTests(unittest.TestCase):
         overrides = [argv[i + 1] for i, arg in enumerate(argv) if arg == '-c']
         self.assertIn('web_search="disabled"', overrides)
         self.assertIn('features.hooks=false', overrides)
-        self.assertIn('features.multi_agent=false', overrides)
+        self.assertIn('agents.enabled=false', overrides)
 
     def test_claude_activates_read_only_agent_without_changing_login_mode(self):
         argv, stdin, _ = build_command('claude_code', {'command': ['claude']}, Path('/tmp/prompt.md'))

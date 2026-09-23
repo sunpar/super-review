@@ -1,54 +1,45 @@
 # Agent and skill design
 
-Research date: 2026-09-23. These recommendations follow current primary documentation and the package's architecture; they are not an experimentally proven optimum.
+Research date: 2026-09-23. Version 0.5 uses model-selected native children. These choices follow primary documentation; they are not a measured optimum for review quality.
 
-## Keep scheduling in Python
+## Models own specialist selection
 
-Use one fresh CLI session for each specialist, coordinator, critique, revision and synthesis job. Python selects the job, pins its source revision, supplies its allowed reports, enforces dependency barriers and resource limits, and publishes the result. A model should inspect evidence and write its assigned review, without deciding which reviewers run or launching another review tree.
+Each top-level review session is a parent model with a catalog of native specialist definitions. It inspects the change, selects all applicable specialists, assigns scoped questions, waits for the children and validates their findings. It may skip irrelevant roles, use multiple children of one role, or use no children for a trivial change. A delegation summary records selections, skipped roles and failed or blocked work. Those records are model claims, not independently measured child telemetry.
 
-This makes the **workflow** deterministic: the same configuration produces the same job graph and input routing. Model findings remain nondeterministic. Fresh contexts also preserve independent first reviews and prevent an earlier phase's conversation from silently influencing another phase. Supplied peer reports become explicit inputs at the appropriate stage.
+Python does not launch specialist sessions. It pins revisions, launches top-level harness sessions, supplies allowed peer reports, enforces cross-harness critique/revision/synthesis barriers and saves reports. The top-level graph is reproducible; child scheduling is intentionally adaptive. Four peers require 21 top-level sessions, plus however many native children their parents select.
 
-The ordinary `pipx` package is sufficient. It generates task instructions and runtime agent definitions; users do not need to install forty persistent agent files. Native agent and skill formats remain useful for optional integrations:
+Definitions are generated from `prompts.py`, selected `run.reviewers`, custom reviewer prompts and role model/effort settings. The package installs no permanent reviewer agent files. Each attempt saves its generated definitions and prompts in its logs.
 
-| Harness | Native custom agents | Reusable skills |
+## Native definitions and delegation
+
+| Harness | Runtime definition | Parent and child controls |
 | --- | --- | --- |
-| Codex | TOML in `.codex/agents/` or `~/.codex/agents/`; required `name`, `description`, `developer_instructions`; optional model, effort and sandbox settings. [Agents](https://learn.chatgpt.com/docs/agent-configuration/subagents) | `.agents/skills/<name>/SKILL.md` in the repository, or `~/.agents/skills/<name>/SKILL.md`; YAML name/description plus instructions. [Skills](https://learn.chatgpt.com/docs/build-skills) |
-| Claude Code | Markdown with YAML frontmatter in `.claude/agents/` or `~/.claude/agents/`; alternatively a session-local `--agents` JSON definition. [Agents](https://code.claude.com/docs/en/sub-agents) | `.claude/skills/<name>/SKILL.md` or `~/.claude/skills/<name>/SKILL.md`. [Skills](https://code.claude.com/docs/en/skills) |
-| Cursor | Markdown with YAML frontmatter in `.cursor/agents/` or `~/.cursor/agents/`; supports model selection and `readonly: true`. [Agents](https://cursor.com/docs/subagents) | `.cursor/skills/<name>/SKILL.md` and `.agents/skills/<name>/SKILL.md`, with corresponding user directories. [Skills](https://cursor.com/docs/skills) |
-| OpenCode | Markdown with YAML frontmatter in `.opencode/agents/` or `~/.config/opencode/agents/`, or JSON configuration under `agent.<name>`. [Agents](https://opencode.ai/docs/agents/) | `.opencode/skills/<name>/SKILL.md` or `~/.config/opencode/skills/<name>/SKILL.md`; also discovers Claude-compatible and `.agents/skills` directories. [Skills](https://opencode.ai/docs/skills/) |
+| Codex | External role TOML files registered using `agents.<name>.config_file` and description overrides; `agents.enabled=true`. | The parent runs with `--sandbox read-only`, inherited by children. Roles carry developer instructions and configured model/effort. External registration avoids depending on project agent discovery or trust. |
+| Claude Code | Session-local `--agents` JSON defines the parent and named children. | Parent has Read/Grep/Glob and `Agent(named-child-allowlist)`. Children have Read/Grep/Glob, plan permission mode, and optional model/effort. Children receive no Agent tool. |
+| Cursor | Temporary `.cursor/agents/*.md` definitions with `readonly: true` and configured model. | Parent uses default Agent mode, with project permissions allowing reads and denying writes, shell, MCP and web fetch. Ask mode does not guarantee native delegation. No automatic trust or force flag is supplied. |
+| OpenCode | Inline configuration defines a primary parent and named `mode: subagent` children. | Parent task permissions allow only catalog children. Children deny further task delegation and use read-only permissions. Model and variant come from the role settings. |
 
-These are principal authoring locations, not exhaustive discovery rules. A skill supplies reusable guidance; it does not by itself create an independent session or enforce the supervisor's schedule.
+Sources: [Codex subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents), [Codex configuration](https://learn.chatgpt.com/docs/config-file/config-reference), [Claude subagents](https://code.claude.com/docs/en/sub-agents), [Cursor subagents](https://cursor.com/docs/subagents), [Cursor CLI permissions](https://cursor.com/docs/cli/reference/permissions), [OpenCode agents](https://opencode.ai/docs/agents/), and [OpenCode schema](https://opencode.ai/config.json).
 
-## CLI implementation choices
+Cursor effort uses explicit `effort_models` mappings. OpenCode child variants require an explicitly configured child model, as specified by its schema. Empty child settings inherit through the native harness; empty parent settings use CLI defaults. Native concurrency limits apply to children independently of `run.concurrency`, which bounds top-level CLI processes. Parents are instructed to batch useful work, not drop relevant roles to fit a limit.
 
-| Harness | Choice for each job |
-| --- | --- |
-| Codex | `-a never exec --sandbox read-only --json --ephemeral`, prompt on stdin. Explicit overrides disable web search, lifecycle hooks and native multi-agent tools. Keep normal authentication/provider configuration. Select model with `--model`, effort with `model_reasoning_effort`. |
-| Claude Code | Noninteractive `-p --output-format json`, with a session-local reviewer defined by `--agents` and selected by `--agent`. Its prompt carries the common contract; expose only Read/Grep/Glob. Keep user settings, disable slash commands and hooks, use strict empty MCP configuration and no session persistence. Select `--model` and supported `--effort`. |
-| Cursor | `--print --mode ask --output-format stream-json`, with an in-worktree prompt file. Pass the model ID through `--model`; effort uses explicitly configured model mappings rather than inventing a universal effort flag. Validate the terminal success envelope and take its nonempty `result`. |
-| OpenCode | `run --format json --agent super-review`, with an inline configured **primary** agent carrying the common prompt and read-only permissions. Request project-config exclusion; disable sharing, snapshots and automatic updates. Retain global authentication/providers/plugins. Use `--model` and provider-supported `--variant`. |
+Codex and Cursor children are instructed not to delegate further; this is not a claim that their role metadata enforces a depth limit. All harnesses must support the emitted native delegation configuration. Missing delegation is a coverage failure, with no fallback to Python specialist workers.
 
-See the official CLI references for [Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli), [Claude Code](https://code.claude.com/docs/en/cli-reference), [Cursor](https://cursor.com/docs/cli/reference/parameters) and [OpenCode](https://opencode.ai/docs/cli/). Supported flags and model identifiers depend on the installed release and account.
+## Context and isolation
 
-Cursor's [terminal result](https://cursor.com/docs/cli/reference/output-format) aggregates assistant text, which can include progress. It is not guaranteed to contain only the last message. Selecting the last assistant segment instead can discard report content. The review prompt requests report-only text.
+Parents receive the pinned diff, requirements and only the peer reports allowed in their phase. Every child reads `.super-review-context.md`, containing the same evidence without the parent's task or delegation instructions. Parents should pass focused scopes without seeding children with tentative findings. Children return results through native tools; they do not write reports.
 
-Avoid unconditionally discarding global configuration to obtain a cleaner session: that can break configured providers and login flows. The retained configuration is trusted. In particular, Claude's main `--agent` session can still receive CLAUDE.md and memory; OpenCode can retain global plugins. Read-only controls do not make arbitrary host configuration or repository content harmless.
+The runtime reserves its prompt/context paths and, for Cursor, its permission and role files. Existing files at those paths cause a visible failure instead of being overwritten. Generated worktree inputs are removed before source cleanliness checks. Codex role files live outside the source tree. Audit copies remain in attempt logs.
 
-There is also a known project-plugin limitation: [OpenCode issue #49836](https://github.com/anomalyco/opencode/issues/49836), open at this review, reproduces repository plugin execution on 1.18.31 despite `OPENCODE_DISABLE_PROJECT_CONFIG`. The legacy loader honors the flag but newer discovery does not consistently do so. The adapter requests exclusion; it cannot certify enforcement. Verify the upstream fix and installed version, and treat repository plugins as trusted executable code.
+Normal authentication and provider configuration are retained. Trusted host configuration can still affect execution: Claude may load CLAUDE.md and memory, and OpenCode can retain global plugins. Read-only settings do not certify isolation from arbitrary host configuration. The adapter requests OpenCode project-config exclusion, but [issue #49836](https://github.com/anomalyco/opencode/issues/49836) reports repository plugins loading despite that flag on 1.18.31. Verify enforcement in the installed release.
 
-## Contracts, skills and coverage
+Reviewers must disclose unread or truncated evidence and unavailable checks. Read-only, no-shell profiles cannot necessarily recover complete base-side files from Git; the supplied diff contains changed base lines, not complete historical source. A completed provider turn does not independently establish complete review coverage.
 
-Supply essential instructions directly: specialty, pinned base/head, complete diff, requirements, report identity, finding criteria, severity/confidence rubric and allowed peer reports. Keep reusable supplementary references short and load them only when relevant. Discovery-based skill activation should not decide whether a required review step happens.
+## Evaluation limits
 
-Stage any required prompt references within the permitted worktree. Claude/OpenCode's no-shell reviewers cannot run `git show` to inspect full base-side source: the diff and HEAD checkout may not establish historical behavior. Materialize needed base files before requiring that comparison, or record the missing evidence as a limitation. Do not broaden permissions merely to suppress the limitation.
+Automated tests validate emitted definitions, task routing, report handling, cleanup and resume. Prompt trials exercise adaptive selection and native tool delegation in the test environment. They do not establish discovery, permissions or model availability inside the four vendor CLIs; those binaries are unavailable in this environment.
 
-Require coverage and limitations to identify unreadable/truncated material and checks not performed. A completed CLI turn does not prove complete inspection, and “no actionable findings” is not assurance about uninspected code. A failed tool call may recover, so do not treat every tool failure as a failed review.
-
-## Evaluate before claiming improvement
-
-Measure known-defect recall, false positives, evidence accuracy, coverage, latency and token use across representative repositories. Compare the fixed specialist suite with simpler baselines, and assess critique/revision gains separately. Test supported CLI releases with real-provider fixtures before claiming compatibility or quality.
-
-Stable common context before task-specific content may help caching, but [OpenAI's caching documentation](https://developers.openai.com/api/docs/guides/prompt-caching) requires matching rendered prefixes and eligible cache boundaries. Worktree paths, system instructions and model settings can prevent reuse. No cache saving or review-quality improvement is guaranteed by this layout.
+Evaluate known-defect recall, false positives, coverage, latency and cost on representative changes before claiming a quality or efficiency improvement. Compare adaptive selection with fixed-role and single-reviewer baselines. Resume reruns an interrupted parent and its children; it does not checkpoint each native child independently.
 
 ## Shared skill installation
 
@@ -61,6 +52,6 @@ The bundled [wrapper skill](../src/super_review/skills/super-review/SKILL.md) la
 
 Cursor and OpenCode also discover Claude-compatible directories. The all-harness installer writes identical content to both directories, avoiding divergent instructions when the same name is discovered in both locations. Harness-specific selection installs only the required directories, but cannot stop compatible harnesses from discovering shared locations. The installer protects differing copies unless `--force` is supplied and backs up whole replaced directories outside discovery roots. Re-run the all-harness installer after upgrading to keep both copies current.
 
-The optional message becomes review guidance through `--intent` or a UTF-8 requirements file; it does not select review peers or replace Python scheduling. The skill selects and announces a committed range, monitors execution, and reads the combined report. Launching from Claude/Cursor/OpenCode still uses the configured review peers and Codex synthesis.
+The optional message becomes review guidance through `--intent` or a UTF-8 requirements file; it does not select review peers or replace the cross-harness handoff schedule. The skill selects and announces a committed range, monitors execution, and reads the combined report. Launching from Claude/Cursor/OpenCode still uses the configured review peers and Codex synthesis.
 
 Workers receive `SUPER_REVIEW_WORKER=1`, and the CLI rejects `run`/`resume` while it is set. The skill also instructs workers to return to their assigned review. This prevents accidental recursion; an environment marker is not a security boundary against malicious code. These integrations follow documented discovery rules; live harness discovery has not been verified in this environment.

@@ -2,31 +2,33 @@
 
 Build an installable Python CLI for an independent, multi-harness code-review panel.
 The source conversation specifies Codex, Claude Code, Cursor CLI, and OpenCode;
-each enabled harness runs the same specialist suite with configurable model and
-effort, assembles a Markdown review, critiques every other review, revises its
+each enabled harness parent chooses relevant native specialist children with
+configurable model and effort, assembles a Markdown review, critiques peers, revises its
 own review after all critiques, and lets Codex synthesize the final report.
 
 ## Protocol
 
 - Python 3.11+, Git, Linux/macOS/WSL; no runtime Python dependencies.
 - One to four review harnesses; Codex is required for final synthesis even when
-  it is not a review peer. Ten specialties by default, selectable explicitly.
+  it is not a review peer. Ten available native roles by default; parents choose
+  which to spawn and explain unused roles.
 - A deterministic asyncio supervisor starts fresh CLI subprocesses for every
-  specialty and phase. These subprocesses are the specialist agents; there is
-  no dependence on a model choosing to spawn its own native subagents.
+  top-level review phase. Each parent model chooses, spawns and waits for native
+  child agents. Python never creates specialist jobs or child CLI processes.
 - A UTC timestamp plus random suffix identifies the entire run. The manifest
   records exact base, merge-base and head SHAs, expanded configuration, expected
   artifact names, artifact hashes, job states, and errors.
-- Initial peer reviews depend on that peer's specialties. Directed critiques
+- Initial peer parents complete their selected native child work. Directed critiques
   depend on the author's initial review and their target's initial review and
-  can overlap remaining specialists. Revision waits for ALL directed critiques;
+  can overlap other parents still reviewing. Revision waits for ALL directed critiques;
   synthesis waits for ALL finals and receives only final review bodies.
 - Publish Markdown with supervisor-owned JSON-compatible YAML front matter via
   atomic rename. Resume verifies hashes and exact expected identities; partial,
   foreign or changed artifacts cannot satisfy dependencies.
 - A non-blocking OS file lock prevents two supervisors from running one manifest.
   Timeout, process failure, or cancellation never publishes a successful report.
-  Completed artifacts survive; resume retries only unfinished jobs.
+  Completed parent artifacts survive; resume retries unfinished parent jobs and
+  any new native children. Individual child tasks are not separately resumed.
 
 ## Git and execution
 
@@ -50,7 +52,7 @@ specialist instructions, per-harness defaults, per-specialty overrides, and
 coordinator/critique/revision/synthesis settings. Snapshot prompt overrides and
 requirements when creating the run. Model identifiers are user-selected; no
 invented universal effort support. Cursor uses an explicit effort-to-model-ID
-mapping. Other adapters use documented provider flags.
+mapping. Other adapters use documented parent flags and native child settings.
 
 Commands: init, doctor, run (--dry-run), resume, status. Dry-run resolves the
 target and produces a plan without starting any model. Output defaults outside
