@@ -1,0 +1,7 @@
+interface:
+  display_name: "Super Review"
+  short_description: "Run the code-review swarm with optional guidance"
+  default_prompt: "Use $super-review to review my current branch."
+
+policy:
+  allow_implicit_invocation: false

@@ -17,6 +17,7 @@ from .adapters import build_command, run_process
 from .config import load_config, settings_for, validate_config
 from .git import resolve_target
 from .runner import create_run, execute_run, plan_jobs, read_status
+from .skill_install import install_codex_skill
 
 
 def parser() -> argparse.ArgumentParser:
@@ -25,6 +26,10 @@ def parser() -> argparse.ArgumentParser:
     commands = p.add_subparsers(dest='command', required=True)
     init = commands.add_parser('init', help='Write an editable TOML configuration')
     init.add_argument('--path', type=Path, default=Path('super-review.toml'))
+    skill = commands.add_parser('install-codex-skill', help='Install the explicit $super-review Codex skill')
+    skill.add_argument('--path', type=Path, default=Path.home() / '.agents' / 'skills' / 'super-review',
+                       help='Destination skill directory (default: ~/.agents/skills/super-review)')
+    skill.add_argument('--force', action='store_true', help='Back up and replace a differing installed skill')
     doctor = commands.add_parser('doctor', help='Check configured CLI executables and versions (no model calls)')
     run = commands.add_parser('run', help='Review committed changes')
     for sub in (doctor, run):
@@ -105,6 +110,15 @@ def _progress(message):
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
     try:
+        if args.command in ('run', 'resume') and os.environ.get('SUPER_REVIEW_WORKER') == '1':
+            raise ValueError('A review worker cannot launch a nested swarm or resume another run')
+        if args.command == 'install-codex-skill':
+            destination, backup = install_codex_skill(args.path, args.force)
+            print(f'Codex skill installed: {destination}')
+            if backup is not None:
+                print(f'Previous skill saved: {backup}')
+            print('In Codex, use $super-review optionally followed by review guidance.')
+            return 0
         if args.command == 'init':
             template = files('super_review').joinpath('example.toml').read_text(encoding='utf-8')
             with args.path.open('x', encoding='utf-8') as stream:

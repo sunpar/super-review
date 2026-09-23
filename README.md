@@ -33,7 +33,7 @@ harness's existing configuration. This package does not install harnesses or man
 provider credentials.
 
 Upgrade an existing installation with `pipx upgrade super-review-swarm` (or
-`uv tool upgrade super-review-swarm`). Version 0.2 uses review protocol 2: finish
+`uv tool upgrade super-review-swarm`). Versions 0.2 and 0.3 use review protocol 2: finish
 0.1 runs with 0.1, or start a new run after upgrading. Old reports remain readable,
 but mixing earlier prompts and adapter policies with new jobs is rejected.
 
@@ -75,6 +75,43 @@ Only committed changes are reviewed. The base defaults to the merge-base of `--b
 and `--head`; use `--exact-base` for an exact two-commit comparison. Nothing is fetched
 automatically, so update your remote refs yourself. Dirty/untracked local edits are
 excluded. Supply `--config /path/to/config.toml` to reuse settings across projects.
+
+## Run from Codex
+
+After installing or upgrading the package, install its skill on each machine:
+
+```bash
+super-review install-codex-skill
+```
+
+In Codex, open the repository you want to review and invoke:
+
+```text
+$super-review
+$super-review Focus on SQL join correctness and race conditions
+```
+
+The optional message goes to every review phase as guidance. The skill uses your
+repository's `super-review.toml`, including its enabled harnesses and model settings;
+without a config it uses Codex and all ten specialists. It selects and announces a
+committed comparison against the local default branch, falling back to the last
+commit when there are no branch changes. You can explicitly specify the base/head
+in your request. Dirty/untracked changes are excluded, and a focus message does not
+restrict which paths enter the diff. The skill waits for the CLI and summarizes
+the combined report.
+
+The skill installs to `~/.agents/skills/super-review` and requires explicit invocation
+in Codex. Use `--path .agents/skills/super-review` for a project-local installation.
+An identical installation is a no-op. To update a differing copy, use
+`super-review install-codex-skill --force`; the previous directory is backed up
+outside the skills directory and its location is printed. Run the installer again
+after package upgrades to update the installed skill.
+
+Codex must be able to execute `super-review` and the configured, authenticated
+harnesses in its environment. A hosted session needs those tools available there,
+too. Normal host execution and approval rules still apply. The supervisor marks
+worker processes with `SUPER_REVIEW_WORKER=1`; the CLI refuses nested `run`/`resume`
+calls from those workers to prevent accidental recursive swarms.
 
 ## Workflow
 

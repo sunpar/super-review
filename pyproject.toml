@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "super-review-swarm"
-version = "0.2.0"
+version = "0.3.0"
 description = "Independent multi-harness code reviews, peer critiques, and Codex synthesis"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,4 +24,4 @@ super-review = "super_review.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-super_review = ["*.toml"]
+super_review = ["*.toml", "skills/super-review/SKILL.md", "skills/super-review/agents/*.yaml"]

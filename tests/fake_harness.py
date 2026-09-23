@@ -9,11 +9,14 @@ harness, events_file, failure = sys.argv[1:4]
 prompt = sys.stdin.read() if harness in ('codex', 'claude_code') else Path('.super-review-prompt.md').read_text()
 marker = next(line for line in prompt.splitlines() if line.startswith('TASK_JSON: '))
 task = json.loads(marker.removeprefix('TASK_JSON: '))
+if 'SUPER_REVIEW_TEST_EXPECT_INTENT' in os.environ:
+    assert os.environ['SUPER_REVIEW_TEST_EXPECT_INTENT'] in prompt
 
 
 def record(event):
     data = {'event': event, 'job': task['id'], 'phase': task['phase'],
-            'harness': harness, 'time': time.monotonic(), 'cwd': str(Path.cwd())}
+            'harness': harness, 'time': time.monotonic(), 'cwd': str(Path.cwd()),
+            'worker': os.environ.get('SUPER_REVIEW_WORKER')}
     with open(events_file, 'a') as output:
         output.write(json.dumps(data) + '\n')
 

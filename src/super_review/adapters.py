@@ -218,6 +218,7 @@ async def invoke(harness: str, settings: dict, prompt: str, cwd: Path,
         raise ValueError('Reviewed repository contains reserved .super-review-prompt.md')
     prompt_path.write_text(prompt, encoding='utf-8')
     argv, use_stdin, env = build_command(harness, settings, prompt_path)
+    env['SUPER_REVIEW_WORKER'] = '1'
     log_dir.mkdir(parents=True, exist_ok=True)
     (log_dir / 'command.json').write_text(json.dumps(argv, indent=2), encoding='utf-8')
     try:
