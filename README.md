@@ -33,7 +33,7 @@ harness's existing configuration. This package does not install harnesses or man
 provider credentials.
 
 Upgrade an existing installation with `pipx upgrade super-review-swarm` (or
-`uv tool upgrade super-review-swarm`). Versions 0.2 and 0.3 use review protocol 2: finish
+`uv tool upgrade super-review-swarm`). Versions 0.2–0.4 use review protocol 2: finish
 0.1 runs with 0.1, or start a new run after upgrading. Old reports remain readable,
 but mixing earlier prompts and adapter policies with new jobs is rejected.
 
@@ -76,42 +76,83 @@ and `--head`; use `--exact-base` for an exact two-commit comparison. Nothing is 
 automatically, so update your remote refs yourself. Dirty/untracked local edits are
 excluded. Supply `--config /path/to/config.toml` to reuse settings across projects.
 
-## Run from Codex
+<a id="run-from-codex"></a>
+## Run from your coding harness
 
-After installing or upgrading the package, install its skill on each machine:
+After installing or upgrading the package, install its skills on each machine:
 
 ```bash
-super-review install-codex-skill
+super-review install-skills
+# Updating an existing 0.3 skill? Preserve a backup and replace it:
+super-review install-skills --force
 ```
 
-In Codex, open the repository you want to review and invoke:
+The default installs for **all four harnesses**, using two locations:
+
+| Harness | User installation | Invocation inside the harness |
+| --- | --- | --- |
+| Codex | `~/.agents/skills/super-review` (shared) | `$super-review` |
+| Cursor CLI | Same shared installation | `/super-review` |
+| OpenCode | Same shared installation | `Use the super-review skill` |
+| Claude Code | `~/.claude/skills/super-review` (same bundled content) | `/super-review` |
+
+Append optional guidance to any invocation, for example:
 
 ```text
-$super-review
 $super-review Focus on SQL join correctness and race conditions
+/super-review Focus on SQL join correctness and race conditions
+Use the super-review skill. Focus on SQL join correctness and race conditions.
 ```
+
+Use the appropriate line for your harness. OpenCode loads the named skill through
+its native skill tool; this installer does not add a custom OpenCode slash command.
+Codex, Claude Code and Cursor have metadata disabling automatic invocation.
+OpenCode ignores that metadata, so the shared instructions require an explicit
+user request before executing the swarm.
 
 The optional message goes to every review phase as guidance. The skill uses your
 repository's `super-review.toml`, including its enabled harnesses and model settings;
-without a config it uses Codex and all ten specialists. It selects and announces a
-committed comparison against the local default branch, falling back to the last
-commit when there are no branch changes. You can explicitly specify the base/head
-in your request. Dirty/untracked changes are excluded, and a focus message does not
-restrict which paths enter the diff. The skill waits for the CLI and summarizes
-the combined report.
+without a config it uses Codex and all ten specialists. The harness launching the
+skill does **not** change the review peers; Codex is still required for synthesis.
+It selects and announces a committed comparison against the local default branch,
+falling back to the last commit when there are no branch changes. You can explicitly
+specify the base/head in your request. Dirty/untracked changes are excluded, and a
+focus message does not restrict which paths enter the diff. The skill waits for
+the CLI and summarizes the combined report.
 
-The skill installs to `~/.agents/skills/super-review` and requires explicit invocation
-in Codex. Use `--path .agents/skills/super-review` for a project-local installation.
-An identical installation is a no-op. To update a differing copy, use
-`super-review install-codex-skill --force`; the previous directory is backed up
-outside the skills directory and its location is printed. Run the installer again
-after package upgrades to update the installed skill.
+To select installation locations or install in one project:
 
-Codex must be able to execute `super-review` and the configured, authenticated
-harnesses in its environment. A hosted session needs those tools available there,
-too. Normal host execution and approval rules still apply. The supervisor marks
-worker processes with `SUPER_REVIEW_WORKER=1`; the CLI refuses nested `run`/`resume`
-calls from those workers to prevent accidental recursive swarms.
+```bash
+super-review install-skills --harnesses claude_code,cursor,opencode
+super-review install-skills --project .
+```
+
+Project installations use `.agents/skills/super-review` and
+`.claude/skills/super-review` below the chosen directory. `--harnesses` selects
+installation targets, not review peers. Shared directories may also be discovered
+by other compatible harnesses. Cursor/OpenCode can discover the Claude-compatible
+copy too; both copies contain the same workflow. No extra `.cursor` or `.opencode`
+copy is created. Keep the two copies in sync with the default all-harness command.
+
+An identical installation is a no-op. A differing copy is protected unless you use
+`--force`; the entire previous directory is backed up outside the skills directory
+and its location is printed. All selected destinations are checked for conflicts
+before writing. Each skill is staged as a complete directory; an I/O failure later
+in a multi-directory installation may leave earlier directories updated. Rerun after
+resolving the error. Run the installer again after package upgrades.
+
+The existing `super-review install-codex-skill` command still works and updates the
+shared installation only. Its `--path` option installs the same bundle at an exact
+custom skill directory, including a nonstandard harness configuration location.
+
+The controlling harness must be able to execute `super-review` and the configured,
+authenticated harnesses in its environment. Use a mode that permits shell execution;
+a hosted session needs the tools available there, too. Normal host execution and
+approval rules still apply. The supervisor marks worker processes with
+`SUPER_REVIEW_WORKER=1`; the CLI refuses nested `run`/`resume` calls from those workers
+to prevent accidental recursive swarms.
+
+See the [official discovery and invocation references](docs/agent-design.md#shared-skill-installation).
 
 ## Workflow
 

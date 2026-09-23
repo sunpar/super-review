@@ -1,18 +1,28 @@
 ---
 name: super-review
-description: Use when the user explicitly invokes $super-review or requests the installed Super Review swarm, optionally with a review-focus message. Not for ordinary individual review tasks or use inside a swarm worker.
+description: Use when the user explicitly invokes super-review or requests the installed Super Review swarm, optionally with a review-focus message. Not for ordinary individual review tasks or use inside a swarm worker.
+disable-model-invocation: true
 ---
 
 # Super Review
 
-Launch the installed `super-review` CLI from the user's controlling Codex session.
+Launch the installed `super-review` CLI from the user's controlling harness session.
 Python manages the reviewers, critiques, revision barrier, and final synthesis.
+The launching harness does not select review peers; Codex still performs synthesis.
 
 ## Invocation
 
-`$super-review` reviews the current branch with the existing configuration.
-`$super-review Focus on SQL joins and race conditions` adds that literal message as
-review guidance. It does not change enabled harnesses or impose a path filter.
+- Codex: `$super-review [optional review guidance]`.
+- Claude Code and Cursor CLI: `/super-review [optional review guidance]`.
+- OpenCode: ask `Use the super-review skill` and optionally add review guidance.
+
+Without guidance, review the current branch with the existing configuration.
+Text such as `Focus on SQL joins and race conditions` is guidance, not a change to
+enabled harnesses or a path filter. Use only the user's actual invocation text,
+not the examples here. Claude Code appends supplied arguments as `ARGUMENTS:`;
+treat that appended value as the optional message, excluding the label itself.
+OpenCode may load this skill automatically; execute only if the user explicitly
+requested this swarm. Loading a skill alone is not authorization to run it.
 
 ## Execute
 
@@ -33,7 +43,8 @@ review guidance. It does not change enabled harnesses or impose a path filter.
    unavailable/ambiguous range, explain the committed-diff limit and ask for a
    supported range. Do not silently substitute a different scope. Mention excluded
    dirty/untracked changes; a focus message is guidance within the diff.
-4. Pass the optional message verbatim as one `--intent` argument. Without a message,
+4. Pass the optional message verbatim using one `--intent=<message>` argument
+   (the equals form also handles messages starting with a hyphen). Without a message,
    omit that argument. Use an argument-array subprocess call with no shell, or
    correctly shell-quote every argument. Never interpolate prose into shell code.
    For a long message, write it with a file-writing tool to a temporary UTF-8 file

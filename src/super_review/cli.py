@@ -17,7 +17,7 @@ from .adapters import build_command, run_process
 from .config import load_config, settings_for, validate_config
 from .git import resolve_target
 from .runner import create_run, execute_run, plan_jobs, read_status
-from .skill_install import install_codex_skill
+from .skill_install import HARNESS_NAMES, install_codex_skill, install_skills
 
 
 def parser() -> argparse.ArgumentParser:
@@ -30,6 +30,12 @@ def parser() -> argparse.ArgumentParser:
     skill.add_argument('--path', type=Path, default=Path.home() / '.agents' / 'skills' / 'super-review',
                        help='Destination skill directory (default: ~/.agents/skills/super-review)')
     skill.add_argument('--force', action='store_true', help='Back up and replace a differing installed skill')
+    skills = commands.add_parser('install-skills', help='Install shared skills for Codex, Claude Code, Cursor and OpenCode')
+    skills.add_argument('--harnesses', default=','.join(HARNESS_NAMES),
+                        help='Comma-separated target harnesses (default: all four); does not change review config')
+    skills.add_argument('--project', type=Path, metavar='DIRECTORY',
+                        help='Install in this project instead of your home directory')
+    skills.add_argument('--force', action='store_true', help='Back up and replace differing installed skills')
     doctor = commands.add_parser('doctor', help='Check configured CLI executables and versions (no model calls)')
     run = commands.add_parser('run', help='Review committed changes')
     for sub in (doctor, run):
@@ -112,6 +118,16 @@ def main(argv=None) -> int:
     try:
         if args.command in ('run', 'resume') and os.environ.get('SUPER_REVIEW_WORKER') == '1':
             raise ValueError('A review worker cannot launch a nested swarm or resume another run')
+        if args.command == 'install-skills':
+            installed = install_skills([h.strip() for h in args.harnesses.split(',')],
+                                       args.project, args.force)
+            for destination, backup in installed:
+                print(f'Skill installed: {destination}')
+                if backup is not None:
+                    print(f'Previous skill saved: {backup}')
+            print('Codex: $super-review | Claude Code/Cursor: /super-review')
+            print('OpenCode: Use the super-review skill. Optionally add review guidance in any harness.')
+            return 0
         if args.command == 'install-codex-skill':
             destination, backup = install_codex_skill(args.path, args.force)
             print(f'Codex skill installed: {destination}')

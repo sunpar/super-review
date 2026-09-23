@@ -94,6 +94,85 @@ class CliTests(unittest.TestCase):
                 self.assertIn('worker', result.stderr.lower())
                 self.assertIn('nested', result.stderr.lower())
 
+    def test_installs_all_harness_skills_in_two_shared_locations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result = self.cli(root, 'install-skills', '--project', str(root))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            shared = root / '.agents/skills/super-review'
+            claude = root / '.claude/skills/super-review'
+            self.assertTrue((shared / 'agents/openai.yaml').is_file())
+            self.assertEqual((shared / 'SKILL.md').read_bytes(), (claude / 'SKILL.md').read_bytes())
+            self.assertFalse((root / '.cursor').exists())
+            self.assertFalse((root / '.opencode').exists())
+            (shared / 'user-notes.txt').write_text('keep this')
+            repeat = self.cli(root, 'install-skills', '--project', str(root))
+            self.assertEqual(repeat.returncode, 0, repeat.stderr)
+            self.assertEqual((shared / 'user-notes.txt').read_text(), 'keep this')
+            self.assertEqual(list(root.rglob('.super-review-skill-backups')), [])
+
+    def test_selected_harnesses_reuse_their_discovery_directories(self):
+        for selection, expected in [('codex', '.agents'), ('cursor', '.agents'),
+                                    ('opencode', '.agents'), ('claude_code', '.claude'),
+                                    ('codex,cursor,opencode,cursor', '.agents')]:
+            with self.subTest(selection=selection), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                result = self.cli(root, 'install-skills', '--project', str(root),
+                                  '--harnesses', selection)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(list(root.glob('*/skills/super-review/SKILL.md')),
+                                 [root / expected / 'skills/super-review/SKILL.md'])
+
+    def test_all_destinations_are_checked_before_installing_or_replacing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            customized = root / '.claude/skills/super-review'
+            customized.mkdir(parents=True)
+            (customized / 'SKILL.md').write_text('custom workflow')
+            (customized / 'extra.txt').write_text('custom resource')
+            refused = self.cli(root, 'install-skills', '--project', str(root))
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertFalse((root / '.agents').exists())
+            self.assertEqual((customized / 'SKILL.md').read_text(), 'custom workflow')
+            forced = self.cli(root, 'install-skills', '--project', str(root), '--force')
+            self.assertEqual(forced.returncode, 0, forced.stderr)
+            backups = list((root / '.claude/.super-review-skill-backups').glob('super-review-*'))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual((backups[0] / 'extra.txt').read_text(), 'custom resource')
+            self.assertEqual((backups[0] / 'SKILL.md').read_text(), 'custom workflow')
+
+    def test_invalid_harness_selection_and_symlinks_do_not_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for selection in ('', 'codex,typo', 'cursor,'):
+                result = self.cli(root, 'install-skills', '--project', str(root),
+                                  '--harnesses', selection)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(list(root.iterdir()), [])
+            outside = root / 'other'
+            outside.mkdir()
+            (outside / 'SKILL.md').write_text('outside skill')
+            link = root / '.claude/skills/super-review'
+            link.parent.mkdir(parents=True)
+            link.symlink_to(outside, target_is_directory=True)
+            result = self.cli(root, 'install-skills', '--project', str(root), '--force')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('symlink', result.stderr)
+            self.assertFalse((root / '.agents').exists())
+            self.assertEqual((outside / 'SKILL.md').read_text(), 'outside skill')
+
+    def test_default_skill_install_uses_home_without_changing_project(self):
+        from contextlib import redirect_stdout
+        import io
+        from super_review.cli import main
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(Path, 'home', return_value=root), redirect_stdout(io.StringIO()):
+                result = main(['install-skills'])
+            self.assertEqual(result, 0)
+            self.assertTrue((root / '.agents/skills/super-review/SKILL.md').is_file())
+            self.assertTrue((root / '.claude/skills/super-review/SKILL.md').is_file())
+
     def test_review_message_reaches_all_phases_literally_and_workers_are_marked(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
