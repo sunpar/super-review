@@ -1,4 +1,8 @@
 # Copy with: super-review init
+# Native review agents are generated per job; no separate skill installation needed.
+# Use recent CLIs. Provider settings should live in user/global configuration:
+# Claude project settings are excluded; OpenCode project exclusion is requested.
+# OpenCode 1.18.31 has a known plugin-loading exception: see README compatibility.
 version = 1
 
 [run]
@@ -13,6 +17,7 @@ total_timeout_seconds = 7200
 output_root = ""
 
 [harnesses.codex]
+# Executable paths are resolved at launch. Use absolute paths for wrapper arguments.
 command = ["codex"]
 [harnesses.codex.defaults]
 # An empty model/effort inherits the installed CLI's configured choice.

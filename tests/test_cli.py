@@ -45,3 +45,19 @@ class CliTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('concurrency', result.stderr)
             self.assertNotIn('Traceback', result.stderr)
+
+    def test_relative_harness_executable_survives_workspace_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo, base, _ = make_repo(root)
+            (repo / 'python-cli').symlink_to(sys.executable)
+            fixture = str(Path(__file__).with_name('fake_harness.py').resolve())
+            command = ['./python-cli', fixture, 'codex', str(root / 'events.jsonl'), '']
+            # An empty wrapper argument is not permitted by configuration.
+            command[-1] = 'no-failure'
+            (repo / 'super-review.toml').write_text(
+                '[run]\nreviewers = ["correctness"]\n'
+                '[harnesses.codex]\ncommand = ' + json.dumps(command) + '\n')
+            result = self.cli(repo, 'run', '--base', base, '--output', str(root / 'runs'))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(Path(result.stdout.strip()).is_file())

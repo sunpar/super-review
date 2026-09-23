@@ -64,9 +64,17 @@ def _required(cfg):
     return list(dict.fromkeys([*cfg['run']['harnesses'], 'codex']))
 
 
-def _check_binaries(cfg):
-    missing = [f"{h}: {cfg['harnesses'][h]['command'][0]}" for h in _required(cfg)
-               if shutil.which(cfg['harnesses'][h]['command'][0]) is None]
+def _resolve_commands(cfg):
+    missing = []
+    for harness in _required(cfg):
+        command = cfg['harnesses'][harness]['command']
+        executable = shutil.which(command[0])
+        if executable is None:
+            missing.append(f'{harness}: {command[0]}')
+        else:
+            # Freeze PATH/relative lookup before moving into disposable worktrees.
+            # Preserve symlinks: resolving a venv's Python changes its environment.
+            command[0] = str(Path(executable).absolute())
     if missing:
         raise ValueError('Missing harness executables: ' + ', '.join(missing) + '. Run super-review doctor.')
 
@@ -129,7 +137,7 @@ def main(argv=None) -> int:
                                      'argv': cmd, 'prompt_on_stdin': stdin})
             print(json.dumps(plan, indent=2))
             return 0
-        _check_binaries(cfg)
+        _resolve_commands(cfg)
         cache = Path(os.environ.get('XDG_CACHE_HOME', str(Path.home() / '.cache')))
         output = args.output or Path(cfg['run']['output_root'] or cache / 'super-review' / 'runs')
         run = create_run(args.repo, args.base, args.head, cfg, output, requirements.strip(), not args.exact_base)

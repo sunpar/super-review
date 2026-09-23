@@ -12,12 +12,14 @@ import uuid
 
 from .adapters import invoke
 from .config import settings_for, validate_config
-from .git import resolve_target, create_snapshot, workspace, assert_clean
+from .git import resolve_target, create_snapshot, async_workspace, async_assert_clean
 from .prompts import render_prompt
 from .protocol import (RunLock, atomic_write, digest_bytes, digest_json, publish,
                        utc_now, verify_artifact)
 
-PROTOCOL_VERSION = 1
+# Bump when prompt or adapter behavior changes incompatibly: a resumed run must
+# not combine completed reviews with jobs using a different execution recipe.
+PROTOCOL_VERSION = 2
 TASK_FIELDS = ('id', 'phase', 'harness', 'reviewer', 'target_harness', 'dependencies', 'output')
 
 
@@ -93,7 +95,8 @@ def _read(root: Path) -> dict:
     try:
         manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
         if manifest['protocol_version'] != PROTOCOL_VERSION:
-            raise ValueError('Unsupported protocol version')
+            raise ValueError('Unsupported run protocol; start a new run or resume with the '
+                             'original package version')
         if not re.fullmatch(r'\d{8}T\d{6}Z-[a-f0-9]{8}', manifest['run_id']):
             raise ValueError('Invalid run ID')
         validate_config(manifest['config'])
@@ -153,10 +156,11 @@ async def _job(root, manifest, task, patch):
     # Per-attempt random directories avoid reusing a worktree left by SIGKILL.
     workdir = root / 'workspaces' / f"{task['id']}-{uuid.uuid4().hex[:8]}"
     logs = root / 'logs' / task['id'] / str(task['attempts'])
-    with workspace(root / 'repository.git', workdir, manifest['target']['head_sha']) as cwd:
+    async with async_workspace(root / 'repository.git', workdir,
+                               manifest['target']['head_sha'], logs / 'git') as cwd:
         body = await invoke(task['harness'], settings, prompt, cwd, logs,
                             config['run']['timeout_seconds'], config['run']['max_output_bytes'])
-        assert_clean(cwd, manifest['target']['head_sha'])
+        await async_assert_clean(cwd, manifest['target']['head_sha'], logs / 'git')
     metadata = {**_metadata(manifest, task), 'generated_at': utc_now()}
     return publish(root / task['output'], metadata, body)
 

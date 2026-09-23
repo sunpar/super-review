@@ -40,6 +40,20 @@ class GitTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'submodules'):
                     resolve_target(repo, base, 'HEAD')
 
+    def test_submodule_ignore_config_cannot_hide_changed_gitlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, first, second = make_repo(Path(tmp))
+            git(repo, 'update-index', '--add', '--cacheinfo', f'160000,{first},sub')
+            git(repo, 'commit', '-m', 'submodule base')
+            base = git(repo, 'rev-parse', 'HEAD')
+            git(repo, 'update-index', '--add', '--cacheinfo', f'160000,{second},sub')
+            (repo / 'calc.py').write_text('another committed change\n')
+            git(repo, 'add', 'calc.py')
+            git(repo, 'commit', '-m', 'submodule and source change')
+            git(repo, 'config', 'diff.ignoreSubmodules', 'all')
+            with self.assertRaisesRegex(ValueError, 'submodules'):
+                resolve_target(repo, base, 'HEAD')
+
     def test_pinned_snapshot_survives_source_branch_moving(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

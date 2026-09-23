@@ -5,7 +5,7 @@ OpenCode**, followed by peer critiques, self-revision, and one combined Codex re
 
 Every specialist and phase gets a fresh CLI process and independently configurable
 model/effort. Python schedules jobs and waits for files; models never spend tokens
-polling directories. Review reports stay on your machine.
+polling directories. The supervisor stores review reports locally.
 
 ## Install
 
@@ -31,6 +31,11 @@ python -m pip install .
 No runtime Python dependencies. Authentication and model billing use each installed
 harness's existing configuration. This package does not install harnesses or manage
 provider credentials.
+
+Upgrade an existing installation with `pipx upgrade super-review-swarm` (or
+`uv tool upgrade super-review-swarm`). Version 0.2 uses review protocol 2: finish
+0.1 runs with 0.1, or start a new run after upgrading. Old reports remain readable,
+but mixing earlier prompts and adapter policies with new jobs is rejected.
 
 ## First review
 
@@ -124,10 +129,26 @@ to a supposedly equivalent level on another provider.
 
 | Harness | Model | Effort | Review restriction |
 |---|---|---|---|
-| Codex | `--model` | `model_reasoning_effort` | read-only sandbox, approvals never |
-| Claude Code | `--model` | `--effort` | Read/Grep/Glob only, plan mode, hooks disabled, empty MCP config |
+| Codex | `--model` | `model_reasoning_effort` | read-only sandbox, approvals never; ephemeral session, web search/hooks/nested agents disabled |
+| Claude Code | `--model` | `--effort` | explicit native reviewer; Read/Grep/Glob only, plan mode, hooks/skills disabled, empty MCP config, user settings only |
 | Cursor | `--model` | Explicit model-ID mapping | Ask mode |
-| OpenCode | `--model provider/model` | `--variant` | Dedicated agent; read/glob/grep/list allowed, other tools denied |
+| OpenCode | `--model provider/model` | `--variant` | explicit primary reviewer; read/glob/grep/list allowed, automatic sharing disabled, project-config exclusion requested |
+
+These profiles use current documented CLI capabilities. Use recent harness
+releases; unsupported flags fail the task rather than silently weakening it.
+See the [agent and skill design research](docs/agent-design.md) for choices and sources.
+
+The supervisor resolves executable paths before entering job worktrees, preserving
+symlinks such as virtual-environment Python. If `command` includes wrapper scripts
+or other path arguments, use absolute paths for those arguments. Claude project
+settings are excluded and OpenCode is asked to exclude project configuration; keep provider settings
+in user/global configuration or set models explicitly in `super-review.toml`.
+
+**OpenCode compatibility:** [upstream issue #49836](https://github.com/anomalyco/opencode/issues/49836)
+reports that 1.18.31 still loads repository `.opencode` plugins despite its exclusion
+flag. Treat repository plugins as executable trusted code; this setting is not an
+isolation guarantee. The issue was open at the 2026-09-23 review. Check the upstream
+fix and your installed version before relying on that exclusion.
 
 Cursor has no universal effort flag. Run `agent models` and map the requested effort
 to an exact available model ID:
@@ -210,6 +231,14 @@ versions, not authentication or every provider setting. If a CLI reports a missi
 flag, update it or consult [adapter references](docs/adapters.md). Cursor may require
 you to establish trust for a newly created workspace; this package does not force
 trust or bypass its permission policy.
+
+Reviewers are asked to report `Review status: COMPLETE` or `INCOMPLETE`, their
+inspected scope, and unread or truncated evidence. These are model claims, not
+supervisor-verified coverage. In particular, Claude/OpenCode have no shell tool:
+they see HEAD and the full diff, but cannot use Git to recover complete historical
+files. They must disclose missing base context when it matters. Cursor's canonical
+terminal result includes all assistant text, so progress prose can appear in a
+report; tool logs are excluded.
 
 ## Development
 

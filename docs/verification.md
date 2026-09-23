@@ -1,19 +1,30 @@
 # Release verification
 
-Version 0.1.0 was developed and checked on Linux with Python 3.12.
+Version 0.2.0 was reviewed and checked on Linux with Python 3.12 on 2026-09-23.
 
-- 28 automated tests pass, including real CLI fixture subprocesses and temporary
+- 40 automated tests pass, including real CLI fixture subprocesses and temporary
   Git repositories. Four-peer tests cover 12 critiques, incremental scheduling,
   all-critique barriers, final-only synthesis input, concurrency limits, and resume.
-- A fresh reviewer inspected the whole implementation and reproduced two Git
-  defects: borrowed object storage in snapshots and missed submodule deletions.
-  Both were fixed with failing-then-passing regression tests.
-- Adapter regressions exclude intermediate Cursor/OpenCode progress text from
-  reports and reject explicit error/incomplete provider envelopes.
+- This audit added regressions for hidden submodule changes, relative harness
+  executables, asynchronous checkout responsiveness, checkout cancellation and
+  cleanup, cancellation during subprocess creation, and incompatible resume.
+  The fixes were verified with failing-then-passing tests.
+- Adapter tests check the emitted native agent/tool configurations and canonical
+  provider envelopes, including Cursor's aggregate terminal result and an incomplete
+  latest Codex turn following an earlier successful turn. They validate adapter
+  behavior, not enforcement inside real harness binaries.
+- An independent final review found no remaining material Python regression and
+  separately exercised cancellation during a real slow Git smudge filter. It found
+  an OpenCode project-plugin exclusion regression upstream; the affected-version
+  limitation is documented rather than claiming isolation that is not established.
 - Wheel and source distributions are built locally. The wheel is installed in a
   fresh virtual environment; CLI entry points and the packaged configuration work.
-- CI is configured for Python 3.11–3.13 on Linux/macOS. This is a configured matrix,
-  not a claim that those remote jobs ran before the repository was published.
+- CI is configured for Python 3.11–3.13 on Linux/macOS. Local verification does not
+  establish the result of that remote matrix.
+
+Protocol 2 prevents version 0.1 runs from resuming with different prompt and adapter
+policies. Existing reports are retained; use the original version to finish those
+runs or begin a fresh run after upgrading.
 
 Live provider authentication, current model availability, and live model output
 quality were not tested: the harness executables are not present in the build
