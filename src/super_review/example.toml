@@ -1,0 +1,63 @@
+# Copy with: super-review init
+version = 1
+
+[run]
+# Enable any subset. Codex is always used for final synthesis.
+harnesses = ["codex"]
+# harnesses = ["codex", "claude_code", "cursor", "opencode"]
+reviewers = ["correctness", "edge_cases", "security", "concurrency", "performance", "api_contracts", "data_integrity", "testing", "architecture", "operations"]
+concurrency = 4
+timeout_seconds = 900
+total_timeout_seconds = 7200
+# Empty uses ~/.cache/super-review/runs (or $XDG_CACHE_HOME).
+output_root = ""
+
+[harnesses.codex]
+command = ["codex"]
+[harnesses.codex.defaults]
+# An empty model/effort inherits the installed CLI's configured choice.
+model = ""
+effort = ""
+[harnesses.codex.reviewers.security]
+# model = "your-codex-model-id"
+# effort = "high"
+[harnesses.codex.coordinator]
+[harnesses.codex.critique]
+[harnesses.codex.revision]
+
+[harnesses.claude_code]
+command = ["claude"]
+[harnesses.claude_code.defaults]
+model = ""
+effort = ""
+[harnesses.claude_code.reviewers.correctness]
+# model = "opus"
+# effort = "high"
+
+[harnesses.cursor]
+# Some installations use ["cursor-agent"].
+command = ["agent"]
+[harnesses.cursor.defaults]
+model = ""
+effort = ""
+# Cursor exposes model IDs rather than a universal effort flag.
+# Populate from `agent models` for YOUR account before setting effort.
+# [harnesses.cursor.defaults.effort_models]
+# high = "exact-high-effort-model-id-from-agent-models"
+
+[harnesses.opencode]
+command = ["opencode"]
+[harnesses.opencode.defaults]
+# model = "provider/model-id-from-opencode-models"
+model = ""
+# Maps to --variant; supported variants depend on the model/provider.
+effort = ""
+
+[synthesis]
+# Inherits Codex defaults, independently overridable.
+# model = "your-codex-model-id"
+# effort = "high"
+
+[reviewer_prompts]
+# Append project-specific specialist guidance, captured into the run manifest.
+# data_integrity = "Pay particular attention to join grain and timezone boundaries."

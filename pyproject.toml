@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "super-review-swarm"
+version = "0.1.0"
+description = "Independent multi-harness code reviews, peer critiques, and Codex synthesis"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{name = "Super Review contributors"}]
+dependencies = []
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: POSIX",
+  "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.scripts]
+super-review = "super_review.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+super_review = ["*.toml"]
